@@ -1,10 +1,29 @@
 const std = @import("std");
+const config = @import("./config.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
     const upstream = b.dependency("openssl", .{});
+
+    // Using the package manager, this artifact can be obtained by the user
+    // through `b.dependency(<name in build.zig.zon>, .{}).artifact("vulkan-zig-generator")`.
+    // with that, the user need only `.addArg("path/to/vk.xml")`, and then obtain
+    // a file source to the generated code with `.addOutputArg("vk.zig")`
+    const generator_exe = b.addExecutable(.{
+        .name = "generate-asm",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("generate.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_step = b.step("gen", "generate asm assembly");
+    const run_cmd = b.addRunArtifact(generator_exe);
+    run_cmd.addFileArg(upstream.path(""));
+    b.installArtifact(generator_exe);
+    run_step.dependOn(&run_cmd.step);
 
     const mod = b.createModule(.{
         .target = target,
@@ -372,6 +391,24 @@ pub fn build(b: *std.Build) void {
         .flags = &base_flags,
     });
 
+    switch (target.result.cpu.arch) {
+        .x86_64 => mod.addCSourceFiles(.{ 
+            .root = upstream.path("crypto"), 
+            .files = &.{
+                "bn/asm/x86_64-gcc.c"
+        } }),
+        else => {},
+    }
+
+    switch (target.result.os.tag) {
+        .linux => mod.addCSourceFiles(.{ 
+            .root = upstream.path("crypto"), 
+            .files = &.{
+                "loongarchcap.c",
+        } }),
+        else => {},
+    }
+
     mod.addCSourceFiles(.{
         .root = upstream.path("crypto"),
         .files = &.{
@@ -496,7 +533,6 @@ pub fn build(b: *std.Build) void {
             "bio/bss_null.c",
             "bio/bss_sock.c",
             "bio/ossl_core_bio.c",
-            "bn/asm/x86_64-gcc.c",
             "bn/bn_add.c",
             "bn/bn_asm.c",
             "bn/bn_blind.c",
@@ -878,7 +914,6 @@ pub fn build(b: *std.Build) void {
             "kdf/kdf_err.c",
             "lhash/lh_stats.c",
             "lhash/lhash.c",
-            "loongarchcap.c",
             //"md2/md2_dgst.c",
             //"md2/md2_one.c",
             "md4/md4_dgst.c",
@@ -1189,51 +1224,24 @@ pub fn build(b: *std.Build) void {
         .flags = &crypto_flags,
     });
 
-    switch (target.result.cpu.arch) {
-        .x86_64 => mod.addCSourceFiles(.{
-            .root = b.path("crypto"),
-            .files = &.{
-                "aes/aes-x86_64.s",
-                "aes/aesni-mb-x86_64.s",
-                "aes/aesni-sha1-x86_64.s",
-                "aes/aesni-sha256-x86_64.s",
-                "aes/aesni-x86_64.s",
-                "aes/bsaes-x86_64.s",
-                "aes/vpaes-x86_64.s",
-                "bn/rsaz-x86_64.s",
-                "camellia/cmll-x86_64.s",
-                "chacha/chacha-x86_64.s",
-                "ec/ecp_nistz256-x86_64.s",
-                "ec/x25519-x86_64.s",
-                "ec/x25519-x86_64.s",
-                "md5/md5-x86_64.s",
-                "modes/aesni-gcm-x86_64.s",
-                "modes/ghash-x86_64.s",
-                "poly1305/poly1305-x86_64.s",
-                "rc4/rc4-md5-x86_64.s",
-                "rc4/rc4-x86_64.s",
-                "sha/keccak1600-x86_64.s",
-                "sha/sha1-mb-x86_64.s",
-                "sha/sha1-x86_64.s",
-                "sha/sha256-mb-x86_64.s",
-                "sha/sha256-x86_64.s",
-                "sha/sha512-x86_64.s",
-                "whrlpool/wp-x86_64.s",
-
-                "x86_64cpuid.s",
-                "bn/x86_64-gf2m.s",
-                "bn/x86_64-mont5.s",
-                "bn/x86_64-mont.s",
-                "bn/rsaz-avx2.s",
-                "bn/rsaz-2k-avx512.s",
-                "bn/rsaz-3k-avx512.s",
-                "bn/rsaz-4k-avx512.s",
-
-                "modes/aes-gcm-avx512.s",
-            },
-            .flags = &crypto_flags,
-        }),
-        else => {},
+    if (res: {
+        for (config.variants) |vari| {
+            if (target.result.cpu.arch == vari.arch and
+                target.result.os.tag == vari.os)
+            {
+                break :res vari;
+            }
+        }
+        break :res null;
+    }) |v| {
+        var files = std.ArrayList([]const u8).initCapacity(b.allocator, v.perl.len) catch @panic("OOM");
+        for (v.perl) |asm_path| {
+            const name = std.Io.Dir.path.basename(asm_path);
+            files.append(b.allocator, b.fmt("{s}.s", .{name})) catch @panic("OOM");
+        }
+        mod.addCSourceFiles(.{ .root = b.path(b.fmt("gen/{s}", .{v.flavor})), .files = files.items });
+    } else {
+        @panic("Unsupported target architecture for OpenSSL crypto module");
     }
 
     mod.addCSourceFiles(.{
