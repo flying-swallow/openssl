@@ -9,9 +9,8 @@ pub fn main(init: std.process.Init) !void {
         for (v.perl) |asm_path| {
             var step_arena = std.heap.ArenaAllocator.init(init.gpa);
             defer step_arena.deinit();
-            var env_map: std.process.Environ.Map = .init(step_arena.allocator());
-            try env_map.put("CC", "zig cc");
-            try env_map.put("ASM", "zig cc");
+            //var env_map: std.process.Environ.Map = .init(step_arena.allocator());
+            //try env_map.put("CC", "zig cc");
 
             const name = std.Io.Dir.path.basename(asm_path);
             const input_file = try std.fmt.allocPrint(step_arena.allocator(), "{s}/{s}.pl", .{ openssl_root, asm_path });
@@ -20,7 +19,7 @@ pub fn main(init: std.process.Init) !void {
             try std.Io.Dir.cwd().createDirPath(init.io, output_folder);
 
             const argv = [_][]const u8{ "perl", input_file, v.flavor, output_file };
-            const res = try std.process.run(step_arena.allocator(), init.io, .{ .argv = &argv, .environ_map = &env_map });
+            const res = try std.process.run(step_arena.allocator(), init.io, .{ .argv = &argv });
             if (res.stdout.len > 0)
                 std.log.info("{s}", .{res.stdout});
             if (res.stderr.len > 0)
