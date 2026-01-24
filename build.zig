@@ -75,32 +75,6 @@ pub fn build(b: *std.Build) void {
         "-DX25519_ASM",
     };
 
-
-    if (res: {
-        for (config.variants) |vari| {
-            if (target.result.cpu.arch == vari.arch and
-                target.result.os.tag == vari.os)
-            {
-                break :res vari;
-            }
-        }
-        break :res null;
-    }) |v| {
-        for (v.perl) |asm_path| {
-            const name = std.Io.Dir.path.basename(asm_path);
-            const perl_asm = b.addSystemCommand(&.{"perl"});
-            perl_asm.addFileArg(upstream.path(b.fmt("{s}.pl", .{asm_path})));
-            perl_asm.addArg(v.flavor);
-            mod.addCSourceFile(.{
-                .language = .assembly_with_preprocessor,
-                .file = perl_asm.addOutputFileArg(b.fmt("{s}.s", .{name}))
-            });
-            lib.step.dependOn(&perl_asm.step);
-        }
-    } else {
-        @panic("Unsupported target architecture for OpenSSL crypto module");
-    }
-
     mod.addCSourceFiles(.{
         .root = upstream.path("ssl"),
         .files = &.{
@@ -1244,25 +1218,25 @@ pub fn build(b: *std.Build) void {
         .flags = &crypto_flags,
     });
 
-  //  if (res: {
-  //      for (config.variants) |vari| {
-  //          if (target.result.cpu.arch == vari.arch and
-  //              target.result.os.tag == vari.os)
-  //          {
-  //              break :res vari;
-  //          }
-  //      }
-  //      break :res null;
-  //  }) |v| {
-  //      var files = std.ArrayList([]const u8).initCapacity(b.allocator, v.perl.len) catch @panic("OOM");
-  //      for (v.perl) |asm_path| {
-  //          const name = std.Io.Dir.path.basename(asm_path);
-  //          files.append(b.allocator, b.fmt("{s}.s", .{name})) catch @panic("OOM");
-  //      }
-  //      mod.addCSourceFiles(.{ .root = b.path(b.fmt("gen/{s}", .{v.flavor})), .files = files.items });
-  //  } else {
-  //      @panic("Unsupported target architecture for OpenSSL crypto module");
-  //  }
+    if (res: {
+        for (config.variants) |vari| {
+            if (target.result.cpu.arch == vari.arch and
+                target.result.os.tag == vari.os)
+            {
+                break :res vari;
+            }
+        }
+        break :res null;
+    }) |v| {
+        var files = std.ArrayList([]const u8).initCapacity(b.allocator, v.perl.len) catch @panic("OOM");
+        for (v.perl) |asm_path| {
+            const name = std.Io.Dir.path.basename(asm_path);
+            files.append(b.allocator, b.fmt("{s}.s", .{name})) catch @panic("OOM");
+        }
+        mod.addCSourceFiles(.{ .root = b.path(b.fmt("gen/{s}", .{v.flavor})), .files = files.items });
+    } else {
+        @panic("Unsupported target architecture for OpenSSL crypto module");
+    }
 
     mod.addCSourceFiles(.{
         .root = b.path("crypto"),
