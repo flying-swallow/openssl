@@ -16,8 +16,10 @@
         "README.md",
         "build.zig",
         "build.zig.zon",
+        "config.zig",
+        "generate.zig",
+        "mingw-arm64.conf",
+        "gen",
         "crypto",
-        "include",
-        "providers",
     },
 }
